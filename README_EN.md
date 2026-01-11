@@ -34,6 +34,16 @@ npm install
 npm start
 ```
 
+### Download Latest Release
+
+To use the pre-compiled application:
+
+🔗 **[Download Latest Release](https://github.com/yasir/egzantirik_seyler/releases/latest)**
+
+- Download the Windows `.exe` installer directly
+- Start using the application immediately after installation
+- No need to install Node.js or npm
+
 ---
 
 ## 📦 Building & Packaging

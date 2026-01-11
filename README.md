@@ -34,6 +34,16 @@ npm install
 npm start
 ```
 
+### Son Release'i İndir
+
+Önceden derlenmiş uygulamayı kullanmak istiyorsanız:
+
+🔗 **[Son Release'i İndir](https://github.com/yasir/egzantirik_seyler/releases/latest)**
+
+- Windows `.exe` installer'ı doğrudan indirebilirsiniz
+- Kurulum sonrası hemen kullanmaya başlayabilirsiniz
+- Node.js ve npm kurmanıza gerek yoktur
+
 ---
 
 ## 📦 Derleme & Paketleme
