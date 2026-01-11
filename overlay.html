@@ -1,0 +1,225 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+<meta charset="UTF-8">
+<title>Hand Overlay</title>
+
+<style>
+body {
+  margin: 0;
+  background: transparent;
+  overflow: hidden;
+}
+
+#cursor {
+  position: fixed;
+  width: 18px;
+  height: 18px;
+  background: #00ff88;
+  border-radius: 50%;
+  box-shadow: 0 0 15px #00ff88;
+  pointer-events: none;
+  transform: translate(-50%, -50%);
+}
+
+#cam {
+  position: fixed;
+  right: 16px;
+  bottom: 16px;
+  width: 220px;
+  opacity: 0.4;
+  border-radius: 12px;
+  transform: scaleX(-1);
+}
+</style>
+</head>
+
+<body>
+
+<div id="cursor"></div>
+<video id="cam" autoplay muted playsinline></video>
+
+<script src="./node_modules/@mediapipe/hands/hands.js"></script>
+<script src="./node_modules/@mediapipe/camera_utils/camera_utils.js"></script>
+
+<script>
+const cam = document.getElementById("cam");
+const cursor = document.getElementById("cursor");
+
+/* ===== STATE ===== */
+let cursorX = screen.width / 2;
+let cursorY = screen.height / 2;
+let smoothX = cursorX;
+let smoothY = cursorY;
+
+let anchor = null;
+let lastMove = { x: cursorX, y: cursorY };
+
+let fistActive = false;
+let lastScrollY = 0;
+
+/* pinch click state */
+let pinchActive = false;
+let pinchStartTime = null;
+
+/* ===== PARAMS ===== */
+const SMOOTHING = 0.15;
+const GAIN = 2.8;
+
+const RIGHT_CLICK_THRESHOLD = 550;
+
+const SCROLL_GAIN = 0.6;
+const SCROLL_DEADZONE = 10;
+
+/* ===== CAMERA ===== */
+navigator.mediaDevices.getUserMedia({ video: true })
+  .then(s => cam.srcObject = s);
+
+/* ===== MEDIAPIPE ===== */
+const hands = new Hands({
+  locateFile: f =>
+    new URL(`./node_modules/@mediapipe/hands/${f}`, location.href).toString()
+});
+
+hands.setOptions({
+  maxNumHands: 2,
+  modelComplexity: 0,
+  minDetectionConfidence: 0.7,
+  minTrackingConfidence: 0.7
+});
+
+/* ===== HELPERS ===== */
+function smooth(target, current) {
+  return current + (target - current) * SMOOTHING;
+}
+
+function isPinch(lm) {
+  return Math.hypot(
+    lm[8].x - lm[4].x,
+    lm[8].y - lm[4].y
+  ) < 0.045;
+}
+
+function isFist(lm) {
+  const tips = [8, 12, 16, 20];
+  const base = [5, 9, 13, 17];
+  let curled = 0;
+  for (let i = 0; i < 4; i++)
+    if (lm[tips[i]].y > lm[base[i]].y) curled++;
+  return curled >= 3;
+}
+
+function isClutch(lm) {
+  return lm[4].y < lm[3].y && !isFist(lm);
+}
+
+/* ===== CORE LOOP ===== */
+hands.onResults(res => {
+  if (!res.multiHandLandmarks || !res.multiHandedness) return;
+
+  let left = null;
+  let right = null;
+
+  res.multiHandLandmarks.forEach((lm, i) => {
+    const side = res.multiHandedness[i].label;
+    if (side === "Left") left = lm;
+    if (side === "Right") right = lm;
+  });
+
+  /* ==== SOL EL → CURSOR ==== */
+  if (left) {
+    const hx = 1 - left[8].x;
+    const hy = left[8].y;
+
+    if (isClutch(left)) {
+      anchor = null;
+      return;
+    }
+
+    if (!anchor) {
+      anchor = { x: hx, y: hy };
+      return;
+    }
+
+    const dx = (hx - anchor.x) * screen.width;
+    const dy = (hy - anchor.y) * screen.height;
+
+    cursorX += dx * GAIN;
+    cursorY += dy * GAIN;
+
+    cursorX = Math.max(0, Math.min(screen.width, cursorX));
+    cursorY = Math.max(0, Math.min(screen.height, cursorY));
+
+    smoothX = smooth(cursorX, smoothX);
+    smoothY = smooth(cursorY, smoothY);
+
+    cursor.style.left = smoothX + "px";
+    cursor.style.top  = smoothY + "px";
+
+    lastMove = { x: smoothX, y: smoothY };
+    anchor = { x: hx, y: hy };
+  }
+
+  /* ==== SAĞ EL → CLICK / SCROLL ==== */
+  if (right) {
+
+    /* CLICK (SHORT = LEFT, HOLD = RIGHT) */
+    const pinch = isPinch(right);
+
+    if (pinch && !pinchActive) {
+      pinchActive = true;
+      pinchStartTime = performance.now();
+    }
+
+    if (!pinch && pinchActive) {
+      const duration = performance.now() - pinchStartTime;
+
+      window.ipc.send("mouse-move", lastMove.x, lastMove.y);
+
+      if (duration > RIGHT_CLICK_THRESHOLD) {
+        window.ipc.send("mouse-right-click");
+      } else {
+        window.ipc.send("mouse-click");
+      }
+
+      pinchActive = false;
+      pinchStartTime = null;
+    }
+
+    /* SCROLL */
+    const fist = isFist(right);
+
+    if (fist && !fistActive) {
+      fistActive = true;
+      lastScrollY = right[8].y * screen.height;
+    }
+
+    if (fist && fistActive) {
+      const currentY = right[8].y * screen.height;
+      const deltaY = currentY - lastScrollY;
+
+      if (Math.abs(deltaY) > SCROLL_DEADZONE) {
+        window.ipc.send("mouse-move", lastMove.x, lastMove.y);
+        window.ipc.send("mouse-scroll", deltaY * SCROLL_GAIN);
+        lastScrollY = currentY;
+      }
+    }
+
+    if (!fist) fistActive = false;
+  }
+});
+
+/* ===== CAMERA LOOP ===== */
+setTimeout(() => {
+  new Camera(cam, {
+    onFrame: async () => {
+      await hands.send({ image: cam });
+    },
+    width: 640,
+    height: 480
+  }).start();
+}, 300);
+</script>
+
+</body>
+</html>
