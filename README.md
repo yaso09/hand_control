@@ -1,46 +1,90 @@
-**Proje**
-- **Ad**: Hand Control
-- **Açıklama**: El hareketleriyle fare kontrolü yapan Electron uygulaması.
+# 🎮 Hand Control
 
-**Hızlı Başlangıç**
-- **Gereksinimler**: Node.js, `npm` ve Windows işletim sistemi.
-- **Geliştirme modunda çalıştırma**:
+> El hareketleriyle fare kontrolü yapan modern Electron uygulaması.
+
+[![Platform](https://img.shields.io/badge/Platform-Windows-blue?style=flat-square)](https://www.microsoft.com/windows/)
+[![Node](https://img.shields.io/badge/Node.js-Required-green?style=flat-square)](https://nodejs.org/)
+[![Electron](https://img.shields.io/badge/Electron-Powered-9cf?style=flat-square)](https://www.electronjs.org/)
+
+---
+
+## ✨ Özellikler
+
+- 🖱️ **El Hareketleriyle Kontrol** — Kameranız aracılığıyla fare hareketini yönetin
+- ⚡ **Hızlı Performans** — Electron tabanlı optimal kullanıcı deneyimi
+- 📦 **Paketlenmiş Dağıtım** — Windows installer desteği
+- 🔧 **Kolay Kurulum** — Basit komutlarla hemen başlayın
+
+---
+
+## 🚀 Hızlı Başlangıç
+
+### Gereksinimler
+
+- **Node.js** ve **npm**
+- **Windows** işletim sistemi
+
+### Kurulum ve Çalıştırma
+
 ```powershell
+# Bağımlılıkları yükle
 npm install
+
+# Geliştirme modunda çalıştır
 npm start
 ```
 
-**Derleme / Paketleme**
-- Proje `electron-builder` ile paketlenmiştir. Hedef: Windows (NSIS).
-- Önceden bağımlılıkları yükleyin ve paketleyin:
+---
+
+## 📦 Derleme & Paketleme
+
+Uygulamayı Windows için paketlemek için:
+
 ```powershell
-npm install
 npm run build
 ```
-- Eğer NSIS installer (.exe) oluşturmak istiyorsanız, sisteminizde `makensis` (NSIS) yüklü olmalıdır. Yüklemek için: https://nsis.sourceforge.io/Download
 
-**Oluşan Sayfalar / Çıktı**
-- Derleme sırasında unpacked uygulama veya installer oluşur.
-- Örnek unpacked çıktı: `dist2/win-unpacked/Hand Control.exe` (veya `dist/win-unpacked` normal build kullanıldığında).
-- Unpacked uygulamayı PowerShell'de çalıştırmak için:
-```powershell
-& "./dist2/win-unpacked/Hand Control.exe"
-# veya
-Start-Process "./dist2/win-unpacked/Hand Control.exe"
-```
+### NSIS Installer Oluşturma
 
-**Özel Dosyalar**
-- Projeye eklenen ekstra dosya: `mouse.ps1` — paket içinde `resources` dizinine kopyalanır.
+Installer (.exe) oluşturmak için sisteminizde **NSIS** yüklü olmalıdır:
 
-**Notlar ve Sorun Giderme**
-- Eğer `npm run build` sırasında "file is being used by another process" hatası alırsanız:
-  - Çalışan `electron` veya `node` süreçlerini kapatın.
-  - `dist` klasörünü silip tekrar deneyin.
-- electron sürümü belirtilmemişse `electron` paketini devDependency olarak ekleyin:
+🔗 **İndir:** [NSIS Resmi Sayfası](https://nsis.sourceforge.io/Download)
+
+---
+
+## 📁 Proje Yapısı
+
+| Dosya | Açıklama |
+|-------|----------|
+| `main.js` | Ana Electron süreci |
+| `preload.js` | Ön yükleme betiği |
+| `overlay.html` | Kullanıcı arayüzü |
+| `mouse.ps1` | PowerShell mouse kontrol scripti |
+| `package.json` | Proje bağımlılıkları ve konfigürasyonu |
+
+---
+
+## 🔧 Sorun Giderme
+
+### "File is being used by another process" Hatası
+
+Derleme sırasında bu hatayı alırsanız:
+
+1. Çalışan `electron` veya `node` işlemlerini kapatın
+2. `dist` klasörünü silin
+3. `npm run build` komutunu tekrar çalıştırın
+
+### Electron Sürümü Problemi
+
+Electron sürümünü açıkça belirtmek için:
+
 ```powershell
 npm install --save-dev electron@28.3.3
 ```
 
-**İletişim**
-- Yazarı: Yasir
+---
+
+## 👤 Geliştirici
+
+**Yasir** tarafından geliştirilmiştir.
 
