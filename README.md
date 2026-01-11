@@ -84,6 +84,57 @@ npm install --save-dev electron@28.3.3
 
 ---
 
+---
+
+## 📖 Kullanım Kılavuzu
+
+### Başlama
+
+1. Uygulamayı başlattıktan sonra, **sistem trayinde** (ekranın sağ alt köşesi) bir ikon göreceksiniz
+2. Tray ikonuna tıklayarak uygulamayı göster/gizleyebilirsiniz
+3. Kameranız açılacak ve el hareketlerinizi algılamaya başlayacaktır
+
+### El Hareketleri
+
+#### **Sağ El — Fare Hareketi**
+- **Başlama:** Sağ elinizin baş parmağıyla diğer parmakları tutun (clutch/kavrayış yapın)
+- **Hareket:** Kavrayışı bırakın ve elinizi hareket ettirin — fare imleci takip edecektir
+- **Çıkma:** Tekrar clutch yaparak ilk noktayı sıfırla
+
+#### **Sol El — Tıklama ve Kaydırma**
+
+**Tıklama (Sol Tıkla):**
+- Başparmağınızı orta parmağınızla hızlı bir şekilde **kıstırın** (pinch) ve çabucak bırakın
+- Fare sol tıklaması gönderilecektir
+
+**Sağ Tıklama:**
+- Başparmağınızı orta parmağınızla **uzun süre kıstırın** (550ms civarı)
+- Sonra bırakın — sağ tıklama gerçekleşecektir
+
+**Kaydırma (Scroll):**
+- Sol elinizi **yumruk yapın** (tüm parmaklarınızı kapatın)
+- Elinizi **yukarı/aşağı hareket ettirin** — sayfa kaydırılacaktır
+
+### Ayarlar & Kontrol
+
+| Parametre | Açıklama | Varsayılan Değer |
+|-----------|----------|------------------|
+| `SMOOTHING` | İmlecin hareketinin pürüzsüzlüğü | 0.15 |
+| `GAIN` | Fare hareketinin duyarlılığı (yüksek = daha hızlı) | 2.8 |
+| `RIGHT_CLICK_THRESHOLD` | Sağ tıklama için kıstırma süresi (ms) | 550 |
+| `SCROLL_GAIN` | Kaydırma hızı | 0.6 |
+| `SCROLL_DEADZONE` | Kaydırma için minimum parmak hareketi | 10 |
+
+Bu değerleri **overlay.html** dosyasındaki `PARAMS` bölümünde değiştirebilirsiniz.
+
+### Tray Menüsü Seçenekleri
+
+- **Göster** — Overlay penceresi görünür hale getirir
+- **Gizle** — Overlay penceresi gizler (ama uygulama çalışmaya devam eder)
+- **Çık** — Uygulamayı kapatır
+
+---
+
 ## 👤 Geliştirici
 
 **Yasir** tarafından geliştirilmiştir.
