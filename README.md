@@ -84,8 +84,6 @@ npm install --save-dev electron@28.3.3
 
 ---
 
----
-
 ## 📖 Kullanım Kılavuzu
 
 ### Başlama
