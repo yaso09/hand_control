@@ -5,3 +5,10 @@ contextBridge.exposeInMainWorld("ipc", {
     ipcRenderer.send(channel, ...args);
   }
 });
+contextBridge.exposeInMainWorld("electronAPI", {
+  ipcRenderer: {
+    invoke: (channel, ...args) => ipcRenderer.invoke(channel, ...args),
+    on: (channel, callback) => ipcRenderer.on(channel, callback),
+    send: (channel, ...args) => ipcRenderer.send(channel, ...args)
+  }
+});

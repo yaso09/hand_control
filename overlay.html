@@ -46,6 +46,36 @@ body {
 const cam = document.getElementById("cam");
 const cursor = document.getElementById("cursor");
 
+/* ===== SETTINGS ===== */
+let settings = {
+  opacity: 100,
+  sensitivity: 1.0,
+  hand: "left",
+  enableMove: true,
+  enableClick: true,
+  enableRightClick: true,
+  enableScroll: true,
+  autoStart: true
+};
+
+// Ayarları yükle
+function loadSettings() {
+  const saved = localStorage.getItem("handControlSettings");
+  if (saved) settings = { ...settings, ...JSON.parse(saved) };
+  applySettings();
+}
+
+function applySettings() {
+  cursor.style.opacity = settings.opacity / 100;
+}
+
+// IPC settings update
+window.electronAPI?.ipcRenderer?.on?.("settings-updated", (_, newSettings) => {
+  settings = { ...settings, ...newSettings };
+  localStorage.setItem("handControlSettings", JSON.stringify(settings));
+  applySettings();
+});
+
 /* ===== STATE ===== */
 let cursorX = screen.width / 2;
 let cursorY = screen.height / 2;
@@ -56,18 +86,17 @@ let anchor = null;
 let lastMove = { x: cursorX, y: cursorY };
 
 let fistActive = false;
-let lastScrollY = 0;
+let scrollAnchor = null;
+let scrollMode = false;
 
-/* pinch click state */
+/* pinch */
 let pinchActive = false;
 let pinchStartTime = null;
 
 /* ===== PARAMS ===== */
 const SMOOTHING = 0.15;
 const GAIN = 2.8;
-
 const RIGHT_CLICK_THRESHOLD = 550;
-
 const SCROLL_GAIN = 0.6;
 const SCROLL_DEADZONE = 10;
 
@@ -89,52 +118,48 @@ hands.setOptions({
 });
 
 /* ===== HELPERS ===== */
-function smooth(target, current) {
-  return current + (target - current) * SMOOTHING;
-}
+const smooth = (t, c) => c + (t - c) * SMOOTHING;
 
-function isPinch(lm) {
-  return Math.hypot(
-    lm[8].x - lm[4].x,
-    lm[8].y - lm[4].y
-  ) < 0.045;
-}
+const isPinch = lm =>
+  Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y) < 0.045;
 
-function isFist(lm) {
-  const tips = [8, 12, 16, 20];
-  const base = [5, 9, 13, 17];
-  let curled = 0;
-  for (let i = 0; i < 4; i++)
-    if (lm[tips[i]].y > lm[base[i]].y) curled++;
-  return curled >= 3;
-}
+const isFist = lm => {
+  const tips = [8,12,16,20];
+  const base = [5,9,13,17];
+  return tips.filter((t,i)=>lm[t].y>lm[base[i]].y).length>=3;
+};
 
-function isClutch(lm) {
-  return lm[4].y < lm[3].y && !isFist(lm);
-}
+const isClutch = lm => lm[4].y < lm[3].y && !isFist(lm);
 
 /* ===== CORE LOOP ===== */
 hands.onResults(res => {
   if (!res.multiHandLandmarks || !res.multiHandedness) return;
 
-  let left = null;
-  let right = null;
+  let left=null, right=null;
 
-  res.multiHandLandmarks.forEach((lm, i) => {
-    const side = res.multiHandedness[i].label;
-    if (side === "Left") left = lm;
-    if (side === "Right") right = lm;
+  res.multiHandLandmarks.forEach((lm,i)=>{
+    const side=res.multiHandedness[i].label;
+    if(side==="Left") left=lm;
+    if(side==="Right") right=lm;
   });
 
-  /* ==== SOL EL → CURSOR ==== */
-  if (left) {
-    const hx = 1 - left[8].x;
-    const hy = left[8].y;
+  let cursorHand = settings.hand==="left" ? right : left;
+  let actionHand = settings.hand==="left" ? left : right;
 
-    if (isClutch(left)) {
-      anchor = null;
+  /* CURSOR */
+  if (cursorHand) {
+    const hx = 1 - cursorHand[8].x;
+    const hy = cursorHand[8].y;
+
+    if (isClutch(cursorHand)) {
+      if (!scrollMode) {
+        scrollMode = true;
+        scrollAnchor = { y: hy };
+      }
       return;
     }
+
+    scrollMode = false;
 
     if (!anchor) {
       anchor = { x: hx, y: hy };
@@ -144,27 +169,29 @@ hands.onResults(res => {
     const dx = (hx - anchor.x) * screen.width;
     const dy = (hy - anchor.y) * screen.height;
 
-    cursorX += dx * GAIN;
-    cursorY += dy * GAIN;
+    if (settings.enableMove) {
+      cursorX += dx * GAIN * settings.sensitivity;
+      cursorY += dy * GAIN * settings.sensitivity;
 
-    cursorX = Math.max(0, Math.min(screen.width, cursorX));
-    cursorY = Math.max(0, Math.min(screen.height, cursorY));
+      cursorX = Math.max(0, Math.min(screen.width, cursorX));
+      cursorY = Math.max(0, Math.min(screen.height, cursorY));
 
-    smoothX = smooth(cursorX, smoothX);
-    smoothY = smooth(cursorY, smoothY);
+      smoothX = smooth(cursorX, smoothX);
+      smoothY = smooth(cursorY, smoothY);
 
-    cursor.style.left = smoothX + "px";
-    cursor.style.top  = smoothY + "px";
+      cursor.style.left = smoothX + "px";
+      cursor.style.top  = smoothY + "px";
 
-    lastMove = { x: smoothX, y: smoothY };
+      lastMove = { x: smoothX, y: smoothY };
+    }
+
     anchor = { x: hx, y: hy };
   }
 
-  /* ==== SAĞ EL → CLICK / SCROLL ==== */
-  if (right) {
+  /* ACTION */
+  if (actionHand) {
 
-    /* CLICK (SHORT = LEFT, HOLD = RIGHT) */
-    const pinch = isPinch(right);
+    const pinch = isPinch(actionHand);
 
     if (pinch && !pinchActive) {
       pinchActive = true;
@@ -175,51 +202,46 @@ hands.onResults(res => {
       const duration = performance.now() - pinchStartTime;
 
       window.ipc.send("mouse-move", lastMove.x, lastMove.y);
-
-      if (duration > RIGHT_CLICK_THRESHOLD) {
-        window.ipc.send("mouse-right-click");
-      } else {
-        window.ipc.send("mouse-click");
-      }
+      window.ipc.send(
+        duration > RIGHT_CLICK_THRESHOLD ? "mouse-right-click" : "mouse-click"
+      );
 
       pinchActive = false;
       pinchStartTime = null;
     }
 
-    /* SCROLL */
-    const fist = isFist(right);
+    const fist = isFist(actionHand);
 
     if (fist && !fistActive) {
       fistActive = true;
-      lastScrollY = right[8].y * screen.height;
+      scrollAnchor = { y: actionHand[8].y };
     }
 
-    if (fist && fistActive) {
-      const currentY = right[8].y * screen.height;
-      const deltaY = currentY - lastScrollY;
-
-      if (Math.abs(deltaY) > SCROLL_DEADZONE) {
-        window.ipc.send("mouse-move", lastMove.x, lastMove.y);
+    if (fist && scrollAnchor) {
+      const deltaY = (scrollAnchor.y - actionHand[8].y) * screen.height * 2;
+      if (Math.abs(deltaY) > SCROLL_DEADZONE && settings.enableScroll) {
         window.ipc.send("mouse-scroll", deltaY * SCROLL_GAIN);
-        lastScrollY = currentY;
+        scrollAnchor.y = actionHand[8].y;
       }
     }
 
-    if (!fist) fistActive = false;
+    if (!fist) {
+      fistActive = false;
+      scrollAnchor = null;
+    }
   }
 });
 
-/* ===== CAMERA LOOP ===== */
+/* CAMERA LOOP */
 setTimeout(() => {
   new Camera(cam, {
-    onFrame: async () => {
-      await hands.send({ image: cam });
-    },
+    onFrame: async () => hands.send({ image: cam }),
     width: 640,
     height: 480
   }).start();
 }, 300);
-</script>
 
+loadSettings();
+</script>
 </body>
 </html>
