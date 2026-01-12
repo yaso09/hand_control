@@ -6,7 +6,7 @@
 
 ; Constants
 !define APP_NAME "Hand Control"
-!define APP_VERSION "1.0.0"
+!define APP_VERSION "1.1.1"
 !define COMPANY_NAME "Yasir"
 !define APP_IDENTIFIER "com.yasir.handcontrol"
 !define INSTALLER_NAME "HandControl-Setup-${APP_VERSION}.exe"
