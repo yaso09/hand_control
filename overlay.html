@@ -1,247 +1,315 @@
 <!DOCTYPE html>
 <html lang="tr">
+
 <head>
-<meta charset="UTF-8">
-<title>Hand Overlay</title>
+  <meta charset="UTF-8">
+  <title>Hand Overlay</title>
 
-<style>
-body {
-  margin: 0;
-  background: transparent;
-  overflow: hidden;
-}
+  <style>
+    body {
+      margin: 0;
+      background: transparent;
+      overflow: hidden;
+    }
 
-#cursor {
-  position: fixed;
-  width: 18px;
-  height: 18px;
-  background: #00ff88;
-  border-radius: 50%;
-  box-shadow: 0 0 15px #00ff88;
-  pointer-events: none;
-  transform: translate(-50%, -50%);
-}
+    #cursor {
+      position: fixed;
+      width: 18px;
+      height: 18px;
+      background: #00ff88;
+      border-radius: 50%;
+      box-shadow: 0 0 15px #00ff88;
+      pointer-events: none;
+      transform: translate(-50%, -50%);
+    }
 
-#cam {
-  position: fixed;
-  right: 16px;
-  bottom: 16px;
-  width: 220px;
-  opacity: 0.4;
-  border-radius: 12px;
-  transform: scaleX(-1);
-}
-</style>
+    #cam {
+      position: fixed;
+      right: 16px;
+      bottom: 16px;
+      width: 220px;
+      opacity: 0.4;
+      border-radius: 12px;
+      transform: scaleX(-1);
+    }
+  </style>
 </head>
 
 <body>
 
-<div id="cursor"></div>
-<video id="cam" autoplay muted playsinline></video>
+  <div id="cursor"></div>
+  <video id="cam" autoplay muted playsinline></video>
 
-<script src="./node_modules/@mediapipe/hands/hands.js"></script>
-<script src="./node_modules/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="./node_modules/@mediapipe/hands/hands.js"></script>
+  <script src="./node_modules/@mediapipe/camera_utils/camera_utils.js"></script>
 
-<script>
-const cam = document.getElementById("cam");
-const cursor = document.getElementById("cursor");
+  <script src="./node_modules/face-api.js/dist/face-api.js"></script>
+  <script>
+    const cam = document.getElementById("cam");
+    const cursor = document.getElementById("cursor");
 
-/* ===== SETTINGS ===== */
-let settings = {
-  opacity: 100,
-  sensitivity: 1.0,
-  hand: "left",
-  enableMove: true,
-  enableClick: true,
-  enableRightClick: true,
-  enableScroll: true,
-  autoStart: true
-};
+    /* ===== SETTINGS ===== */
+    let settings = {
+      opacity: 100,
+      sensitivity: 1.0,
+      hand: "left",
+      enableMove: true,
+      enableClick: true,
+      enableRightClick: true,
+      enableScroll: true,
+      autoStart: true
+    };
 
-// Ayarları yükle
-function loadSettings() {
-  const saved = localStorage.getItem("handControlSettings");
-  if (saved) settings = { ...settings, ...JSON.parse(saved) };
-  applySettings();
-}
+    // Security State
+    let isFaceAuthorized = true; // Default to true if no face security is set up, or false?
+    // Requirement: "Tanınan yüzler dışındaki yüzlerin ellerinin ekranda kontrolü olmasın."
+    // If faces are registered, default to false. If no faces registered, maybe true (allow all)?
+    // Let's assume: If faces exist, secure mode is ON. If empty, secure mode OFF.
+    let hasRegisteredFaces = false;
+    let faceCheckInterval = null;
 
-function applySettings() {
-  cursor.style.opacity = settings.opacity / 100;
-}
+    // Ayarları yükle
+    function loadSettings() {
+      const saved = localStorage.getItem("handControlSettings");
+      if (saved) settings = { ...settings, ...JSON.parse(saved) };
 
-// IPC settings update
-window.electronAPI?.ipcRenderer?.on?.("settings-updated", (_, newSettings) => {
-  settings = { ...settings, ...newSettings };
-  localStorage.setItem("handControlSettings", JSON.stringify(settings));
-  applySettings();
-});
+      // Check registered faces
+      const savedFaces = JSON.parse(localStorage.getItem('handControlFaces')) || [];
+      hasRegisteredFaces = savedFaces.length > 0;
+      if (!hasRegisteredFaces) isFaceAuthorized = true; // No security set
 
-/* ===== STATE ===== */
-let cursorX = screen.width / 2;
-let cursorY = screen.height / 2;
-let smoothX = cursorX;
-let smoothY = cursorY;
+      applySettings();
+    }
 
-let anchor = null;
-let lastMove = { x: cursorX, y: cursorY };
+    function applySettings() {
+      cursor.style.opacity = settings.opacity / 100;
+    }
 
-let fistActive = false;
-let scrollAnchor = null;
-let scrollMode = false;
+    // IPC settings update
+    window.electronAPI?.ipcRenderer?.on?.("settings-updated", () => {
+      // Reload everything to catch new faces or settings
+      loadSettings();
+    });
 
-/* pinch */
-let pinchActive = false;
-let pinchStartTime = null;
+    /* ===== STATE ===== */
+    let cursorX = screen.width / 2;
+    let cursorY = screen.height / 2;
+    let smoothX = cursorX;
+    let smoothY = cursorY;
 
-/* ===== PARAMS ===== */
-const SMOOTHING = 0.15;
-const GAIN = 2.8;
-const RIGHT_CLICK_THRESHOLD = 550;
-const SCROLL_GAIN = 0.6;
-const SCROLL_DEADZONE = 10;
+    let anchor = null;
+    let lastMove = { x: cursorX, y: cursorY };
 
-/* ===== CAMERA ===== */
-navigator.mediaDevices.getUserMedia({ video: true })
-  .then(s => cam.srcObject = s);
+    let fistActive = false;
+    let scrollAnchor = null;
+    let scrollMode = false;
 
-/* ===== MEDIAPIPE ===== */
-const hands = new Hands({
-  locateFile: f =>
-    new URL(`./node_modules/@mediapipe/hands/${f}`, location.href).toString()
-});
+    /* pinch */
+    let pinchActive = false;
+    let pinchStartTime = null;
 
-hands.setOptions({
-  maxNumHands: 2,
-  modelComplexity: 0,
-  minDetectionConfidence: 0.7,
-  minTrackingConfidence: 0.7
-});
+    /* ===== PARAMS ===== */
+    const SMOOTHING = 0.15;
+    const GAIN = 2.8;
+    const RIGHT_CLICK_THRESHOLD = 550;
+    const SCROLL_GAIN = 0.6;
+    const SCROLL_DEADZONE = 10;
 
-/* ===== HELPERS ===== */
-const smooth = (t, c) => c + (t - c) * SMOOTHING;
+    /* ===== FACIAL RECOGNITION ===== */
+    async function startFaceAuth() {
+      await faceapi.nets.tinyFaceDetector.loadFromUri('./models');
+      await faceapi.nets.faceLandmark68Net.loadFromUri('./models');
+      await faceapi.nets.faceRecognitionNet.loadFromUri('./models');
 
-const isPinch = lm =>
-  Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y) < 0.045;
+      // Start Check Loop
+      setInterval(async () => {
+        // Reload faces dynamically (in case added via settings)
+        const savedFaces = JSON.parse(localStorage.getItem('handControlFaces')) || [];
+        hasRegisteredFaces = savedFaces.length > 0;
 
-const isFist = lm => {
-  const tips = [8,12,16,20];
-  const base = [5,9,13,17];
-  return tips.filter((t,i)=>lm[t].y>lm[base[i]].y).length>=3;
-};
+        if (!hasRegisteredFaces) {
+          isFaceAuthorized = true;
+          cursor.style.border = "none";
+          return;
+        }
 
-const isClutch = lm => lm[4].y < lm[3].y && !isFist(lm);
+        if (cam.paused || cam.ended || !cam.currentTime) return;
 
-/* ===== CORE LOOP ===== */
-hands.onResults(res => {
-  if (!res.multiHandLandmarks || !res.multiHandedness) return;
+        // Detect Face
+        const detection = await faceapi.detectSingleFace(cam, new faceapi.TinyFaceDetectorOptions()).withFaceLandmarks().withFaceDescriptor();
 
-  let left=null, right=null;
+        if (detection) {
+          const faceMatcher = new faceapi.FaceMatcher(savedFaces.map(d => new faceapi.LabeledFaceDescriptors("User", [new Float32Array(d)])), 0.6);
+          const match = faceMatcher.findBestMatch(detection.descriptor);
 
-  res.multiHandLandmarks.forEach((lm,i)=>{
-    const side=res.multiHandedness[i].label;
-    if(side==="Left") left=lm;
-    if(side==="Right") right=lm;
-  });
+          if (match.label !== "unknown") {
+            isFaceAuthorized = true;
+            cursor.style.backgroundColor = "#00ff88"; // Green for authorized
+            cursor.style.boxShadow = "0 0 15px #00ff88";
+          } else {
+            isFaceAuthorized = false;
+            cursor.style.backgroundColor = "#ff0000"; // Red for unauthorized
+            cursor.style.boxShadow = "0 0 15px #ff0000";
+          }
+        } else {
+          isFaceAuthorized = false; // No face seen
+          cursor.style.backgroundColor = "#ff0000";
+          cursor.style.boxShadow = "0 0 15px #ff0000";
+        }
 
-  let cursorHand = settings.hand==="left" ? right : left;
-  let actionHand = settings.hand==="left" ? left : right;
+      }, 500); // Check every 500ms
+    }
 
-  /* CURSOR */
-  if (cursorHand) {
-    const hx = 1 - cursorHand[8].x;
-    const hy = cursorHand[8].y;
 
-    if (isClutch(cursorHand)) {
-      if (!scrollMode) {
-        scrollMode = true;
-        scrollAnchor = { y: hy };
+    /* ===== CAMERA ===== */
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(s => {
+        cam.srcObject = s;
+        startFaceAuth(); // Start auth when camera is ready
+      });
+
+    /* ===== MEDIAPIPE ===== */
+    const hands = new Hands({
+      locateFile: f =>
+        new URL(`./node_modules/@mediapipe/hands/${f}`, location.href).toString()
+    });
+
+    hands.setOptions({
+      maxNumHands: 2,
+      modelComplexity: 0,
+      minDetectionConfidence: 0.7,
+      minTrackingConfidence: 0.7
+    });
+
+    /* ===== HELPERS ===== */
+    const smooth = (t, c) => c + (t - c) * SMOOTHING;
+
+    const isPinch = lm =>
+      Math.hypot(lm[8].x - lm[4].x, lm[8].y - lm[4].y) < 0.045;
+
+    const isFist = lm => {
+      const tips = [8, 12, 16, 20];
+      const base = [5, 9, 13, 17];
+      return tips.filter((t, i) => lm[t].y > lm[base[i]].y).length >= 3;
+    };
+
+    const isClutch = lm => lm[4].y < lm[3].y && !isFist(lm);
+
+    /* ===== CORE LOOP ===== */
+    hands.onResults(res => {
+      // SECURITY CHECK
+      if (!isFaceAuthorized && hasRegisteredFaces) return;
+
+      if (!res.multiHandLandmarks || !res.multiHandedness) return;
+
+      let left = null, right = null;
+
+      res.multiHandLandmarks.forEach((lm, i) => {
+        const side = res.multiHandedness[i].label;
+        if (side === "Left") left = lm;
+        if (side === "Right") right = lm;
+      });
+
+      let cursorHand = settings.hand === "left" ? right : left;
+      let actionHand = settings.hand === "left" ? left : right;
+
+      /* CURSOR */
+      if (cursorHand) {
+        const hx = 1 - cursorHand[8].x;
+        const hy = cursorHand[8].y;
+
+        if (isClutch(cursorHand)) {
+          if (!scrollMode) {
+            scrollMode = true;
+            scrollAnchor = { y: hy };
+          }
+          return;
+        }
+
+        scrollMode = false;
+
+        if (!anchor) {
+          anchor = { x: hx, y: hy };
+          return;
+        }
+
+        const dx = (hx - anchor.x) * screen.width;
+        const dy = (hy - anchor.y) * screen.height;
+
+        if (settings.enableMove) {
+          cursorX += dx * GAIN * settings.sensitivity;
+          cursorY += dy * GAIN * settings.sensitivity;
+
+          cursorX = Math.max(0, Math.min(screen.width, cursorX));
+          cursorY = Math.max(0, Math.min(screen.height, cursorY));
+
+          smoothX = smooth(cursorX, smoothX);
+          smoothY = smooth(cursorY, smoothY);
+
+          cursor.style.left = smoothX + "px";
+          cursor.style.top = smoothY + "px";
+
+          lastMove = { x: smoothX, y: smoothY };
+        }
+
+        anchor = { x: hx, y: hy };
       }
-      return;
-    }
 
-    scrollMode = false;
+      /* ACTION */
+      if (actionHand) {
 
-    if (!anchor) {
-      anchor = { x: hx, y: hy };
-      return;
-    }
+        const pinch = isPinch(actionHand);
 
-    const dx = (hx - anchor.x) * screen.width;
-    const dy = (hy - anchor.y) * screen.height;
+        if (pinch && !pinchActive) {
+          pinchActive = true;
+          pinchStartTime = performance.now();
+        }
 
-    if (settings.enableMove) {
-      cursorX += dx * GAIN * settings.sensitivity;
-      cursorY += dy * GAIN * settings.sensitivity;
+        if (!pinch && pinchActive) {
+          const duration = performance.now() - pinchStartTime;
 
-      cursorX = Math.max(0, Math.min(screen.width, cursorX));
-      cursorY = Math.max(0, Math.min(screen.height, cursorY));
+          window.ipc.send("mouse-move", lastMove.x, lastMove.y);
+          window.ipc.send(
+            duration > RIGHT_CLICK_THRESHOLD ? "mouse-right-click" : "mouse-click"
+          );
 
-      smoothX = smooth(cursorX, smoothX);
-      smoothY = smooth(cursorY, smoothY);
+          pinchActive = false;
+          pinchStartTime = null;
+        }
 
-      cursor.style.left = smoothX + "px";
-      cursor.style.top  = smoothY + "px";
+        const fist = isFist(actionHand);
 
-      lastMove = { x: smoothX, y: smoothY };
-    }
+        if (fist && !fistActive) {
+          fistActive = true;
+          scrollAnchor = { y: actionHand[8].y };
+        }
 
-    anchor = { x: hx, y: hy };
-  }
+        if (fist && scrollAnchor) {
+          const deltaY = (scrollAnchor.y - actionHand[8].y) * screen.height * 2;
+          if (Math.abs(deltaY) > SCROLL_DEADZONE && settings.enableScroll) {
+            window.ipc.send("mouse-scroll", deltaY * SCROLL_GAIN);
+            scrollAnchor.y = actionHand[8].y;
+          }
+        }
 
-  /* ACTION */
-  if (actionHand) {
-
-    const pinch = isPinch(actionHand);
-
-    if (pinch && !pinchActive) {
-      pinchActive = true;
-      pinchStartTime = performance.now();
-    }
-
-    if (!pinch && pinchActive) {
-      const duration = performance.now() - pinchStartTime;
-
-      window.ipc.send("mouse-move", lastMove.x, lastMove.y);
-      window.ipc.send(
-        duration > RIGHT_CLICK_THRESHOLD ? "mouse-right-click" : "mouse-click"
-      );
-
-      pinchActive = false;
-      pinchStartTime = null;
-    }
-
-    const fist = isFist(actionHand);
-
-    if (fist && !fistActive) {
-      fistActive = true;
-      scrollAnchor = { y: actionHand[8].y };
-    }
-
-    if (fist && scrollAnchor) {
-      const deltaY = (scrollAnchor.y - actionHand[8].y) * screen.height * 2;
-      if (Math.abs(deltaY) > SCROLL_DEADZONE && settings.enableScroll) {
-        window.ipc.send("mouse-scroll", deltaY * SCROLL_GAIN);
-        scrollAnchor.y = actionHand[8].y;
+        if (!fist) {
+          fistActive = false;
+          scrollAnchor = null;
+        }
       }
-    }
+    });
 
-    if (!fist) {
-      fistActive = false;
-      scrollAnchor = null;
-    }
-  }
-});
+    /* CAMERA LOOP */
+    setTimeout(() => {
+      new Camera(cam, {
+        onFrame: async () => hands.send({ image: cam }),
+        width: 640,
+        height: 480
+      }).start();
+    }, 300);
 
-/* CAMERA LOOP */
-setTimeout(() => {
-  new Camera(cam, {
-    onFrame: async () => hands.send({ image: cam }),
-    width: 640,
-    height: 480
-  }).start();
-}, 300);
-
-loadSettings();
-</script>
+    loadSettings();
+  </script>
 </body>
+
 </html>
