@@ -1,13 +1,11 @@
 const { app, BrowserWindow, ipcMain, screen, Tray, Menu, shell } = require("electron");
 const { spawn } = require("child_process");
 const path = require("path");
+const { autoUpdater } = require("electron-updater");
 
 let win;
 let tray;
-let splashWin;
 let settingsWin;
-let loginWin;
-let isLoggedIn = false;
 
 // Global ayarlar
 let currentSettings = {
@@ -21,18 +19,56 @@ let currentSettings = {
   autoStart: true
 };
 
-function runPS(args) {
-  spawn("powershell", [
+// --- Persistent Mouse Process ---
+let mouseProcess = null;
+
+function startMouseProcess() {
+  const scriptPath = app.isPackaged
+    ? path.join(path.dirname(app.getPath("exe")), "mouse.ps1")
+    : path.join(__dirname, "mouse.ps1");
+
+  mouseProcess = spawn("powershell", [
     "-NoProfile",
     "-ExecutionPolicy", "Bypass",
-    "-File", path.join(__dirname, "mouse.ps1"),
-    ...args
+    "-File", scriptPath
   ]);
+
+  mouseProcess.stdin.setDefaultEncoding('utf-8');
+
+  mouseProcess.on('error', (err) => {
+    console.error('Mouse process failed:', err);
+  });
+
+  mouseProcess.on('exit', (code, signal) => {
+    console.log(`Mouse process exited with code ${code} and signal ${signal}`);
+    mouseProcess = null;
+  });
+}
+
+function runPS(args) {
+  if (!mouseProcess) {
+    startMouseProcess();
+  }
+
+  try {
+    const command = args.join(",");
+    if (mouseProcess && mouseProcess.stdin) {
+      mouseProcess.stdin.write(command + "\n");
+    }
+  } catch (e) {
+    console.error("Error sending command:", e);
+  }
 }
 
 app.whenReady().then(() => {
+  // 1. Start Support Processes
+  startMouseProcess();
+  autoUpdater.checkForUpdatesAndNotify();
+
   const { width, height } = screen.getPrimaryDisplay().size;
 
+  // 2. Create Overlay Window
+  // Configuration based on working snippet: alwaysOnTop + fullscreen
   win = new BrowserWindow({
     width,
     height,
@@ -40,34 +76,24 @@ app.whenReady().then(() => {
     y: 0,
     transparent: true,
     frame: false,
-    resizable: false,
-    movable: false,
-    minimizable: false,
-    maximizable: false,
-    fullscreenable: false,
-    focusable: true,
+    alwaysOnTop: true,
+    fullscreen: true,
     skipTaskbar: true,
     hasShadow: false,
-    type: "splash",
-    show: false,
+    // Removed 'type: "toolbar"' and 'show: false' to ensure visibility
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true
     }
   });
 
-  win.setIgnoreMouseEvents(true);
-  win.setAlwaysOnTop(true, "pop-up-menu", 1);
+  win.setIgnoreMouseEvents(true, { forward: true });
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
 
   win.loadFile("overlay.html");
-  win.hide(); // Başlangıçta gizle, login başarılı olunca göster
 
-  // Overlay yüklendikten sonra splash screen'i kapat
-  win.once("ready-to-show", () => {
-    // Burada gösterilmeyecek, login başarılı olunca gösterilecek
-  });
-
+  // NOTE: Splash screen logic removed to ensure overlay loads immediately and visibly.
+  // User reported overlay not loading with previous complex show/hide logic.
 
   // Tray ikon oluştur
   const iconPath = path.join(__dirname, "icon.png");
@@ -124,39 +150,12 @@ app.whenReady().then(() => {
     }
   });
 
-  if (!splashWin || splashWin.isDestroyed()) {
-      splashWin = new BrowserWindow({
-        width: 500,
-        height: 600,
-        frame: false,
-        transparent: false,
-        alwaysOnTop: true,
-        center: true,
-        webPreferences: {
-          nodeIntegration: false,
-          contextIsolation: true
-        }
-      });
-      splashWin.loadFile("splash.html");
-    }
-    
-    splashWin.show();
-    
-    // 2 saniye sonra splash'i kapat ve overlay'i göster
-    setTimeout(() => {
-      if (splashWin && !splashWin.isDestroyed()) {
-        splashWin.close();
-      }
-      if (win && !win.isDestroyed()) {
-        win.showInactive();
-        win.moveTop();
-      }
-    }, 2000);
-    
-    // Overlay'e doğrulamanın başarılı olduğunu bildir
-    if (win && !win.isDestroyed()) {
+  // Overlay'e doğrulamanın başarılı olduğunu bildir (Immediate support)
+  if (win && !win.isDestroyed()) {
+    win.webContents.on('did-finish-load', () => {
       win.webContents.send("auth-success");
-    }
+    });
+  }
 
   ipcMain.on("mouse-move", (_, x, y) => {
     if (currentSettings.enableMove) {
@@ -178,29 +177,32 @@ app.whenReady().then(() => {
 
   ipcMain.on("mouse-scroll", (_, delta) => {
     if (currentSettings.enableScroll) {
-      runPS(["scroll", "0", "0", Math.round(delta).toString()]);
+      runPS(["scroll", Math.round(delta).toString()]);
     }
   });
 
   // Ayarları kaydet
   ipcMain.handle("save-settings", (_, settings) => {
     currentSettings = { ...currentSettings, ...settings };
-    
+
     // Overlay'e ayarları gönder
     if (win && !win.isDestroyed()) {
       win.webContents.send("settings-updated", currentSettings);
     }
-    
+
     return true;
   });
 
   // Pencere kapatıldığında uygulamayı kapama
   let isQuitting = false;
-  
+
   app.on("before-quit", () => {
     isQuitting = true;
+    if (mouseProcess) {
+      mouseProcess.kill();
+    }
   });
-  
+
   win.on("close", (event) => {
     if (!isQuitting) {
       event.preventDefault();
@@ -215,6 +217,7 @@ function openSettingsWindow() {
     return;
   }
 
+  // Settings window usually doesn't need to be transparent or always on top
   settingsWin = new BrowserWindow({
     width: 350,
     height: 600,

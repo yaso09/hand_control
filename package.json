@@ -11,6 +11,13 @@
   "build": {
     "appId": "com.yasir.handcontrol",
     "productName": "Hand Control",
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "yaso09",
+        "repo": "hand_control"
+      }
+    ],
     "files": [
       "**/*",
       "!node_modules/.cache/**"
@@ -31,7 +38,8 @@
   },
   "dependencies": {
     "@mediapipe/camera_utils": "^0.3.1675466862",
-    "@mediapipe/hands": "^0.4.1675469240"
+    "@mediapipe/hands": "^0.4.1675469240",
+    "electron-updater": "^6.7.3"
   },
   "devDependencies": {
     "electron": "^28.3.3",
